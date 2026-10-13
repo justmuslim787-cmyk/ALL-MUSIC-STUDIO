@@ -1,58 +1,81 @@
+
 name: Build ALL MUSIC STUDIO APK
 
 on:
-workflow_dispatch:
-push:
-paths:
-- ".github/workflows/build.yml"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-22.04
-timeout-minutes: 360
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Install system dependencies
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential ccache git zip unzip \
+            openjdk-17-jdk python3-pip python3-venv \
+            autoconf automake libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            libtinfo6 cmake libffi-dev libssl-dev
 
-  - name: Prepare Python environment
-    run: |
-      python3 -m venv .venv
-      . .venv/bin/activate
-      pip install --upgrade pip setuptools wheel
-      pip install "Cython==0.29.37" "buildozer==1.6.0"
+      - name: Prepare Python environment
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "Cython==0.29.37" "buildozer==1.5.0"
 
-  - name: Extract project ZIP
-    run: |
-      unzip -o ALL_MUSIC_STUDIO_SOURCE.zip -d source
-      SPEC="$(find source -name buildozer.spec -print -quit)"
-      if [ -z "$SPEC" ]; then
-        echo "ERROR: buildozer.spec not found in ZIP"
-        exit 1
-      fi
-      echo "PROJECT_DIR=$(dirname "$SPEC")" >> "$GITHUB_ENV"
+      - name: Check source ZIP
+        run: |
+          test -f ALL_MUSIC_STUDIO_SOURCE.zip
+          unzip -l ALL_MUSIC_STUDIO_SOURCE.zip | head -40
 
-  - name: Build APK
-    run: |
-      . .venv/bin/activate
-      cd "$PROJECT_DIR"
-      yes | buildozer -v android debug
+      - name: Extract and locate project
+        run: |
+          mkdir -p source
+          unzip -o ALL_MUSIC_STUDIO_SOURCE.zip -d source
+          SPEC="$(find source -type f -name buildozer.spec -print -quit)"
+          if [ -z "$SPEC" ]; then
+            echo "ERROR: buildozer.spec was not found in the ZIP."
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$SPEC")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT_DIR"
+          echo "Found buildozer.spec:"
+          cat "$SPEC"
 
-  - name: Upload APK
-    if: always()
-    uses: actions/upload-artifact@v4
-    with:
-      name: ALL-MUSIC-STUDIO-build-results
-      path: |
-        source/**/*.apk
-        source/**/.buildozer/**/*.log
-      if-no-files-found: warn
-      retention-days: 7
+      - name: Build debug APK
+        run: |
+          . .venv/bin/activate
+          cd "$PROJECT_DIR"
+          yes | buildozer -v android debug
+
+      - name: Collect APK and build logs
+        if: always()
+        run: |
+          mkdir -p build-results
+          find source -type f \( -name "*.apk" -o -name "*.log" \) \
+            -exec cp --parents {} build-results/ \; || true
+          find . -maxdepth 2 -type f -name "*.log" \
+            -exec cp --parents {} build-results/ \; || true
+
+      - name: Upload build results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALL-MUSIC-STUDIO-build-results
+          path: build-results/
+          if-no-files-found: warn
+          retention-days: 7
