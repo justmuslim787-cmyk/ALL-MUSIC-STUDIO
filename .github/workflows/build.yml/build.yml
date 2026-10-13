@@ -1,0 +1,65 @@
+name: Build ALL MUSIC STUDIO APK
+
+on:
+workflow_dispatch:
+push:
+paths:
+- ".github/workflows/build.yml"
+
+permissions:
+contents: read
+
+jobs:
+build:
+runs-on: ubuntu-22.04
+timeout-minutes: 360
+
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+
+  - name: Install system dependencies
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y \
+        git zip unzip openjdk-17-jdk \
+        python3-pip python3-venv \
+        autoconf automake libtool pkg-config \
+        zlib1g-dev libncurses5-dev libncursesw5-dev \
+        libtinfo6 cmake libffi-dev libssl-dev
+
+  - name: Prepare Python environment
+    run: |
+      python3 -m venv .venv
+      . .venv/bin/activate
+      pip install --upgrade pip setuptools wheel
+      pip install "Cython==0.29.37" "buildozer==1.6.0"
+
+  - name: Extract project ZIP
+    run: |
+      unzip -o ALL_MUSIC_STUDIO_SOURCE.zip -d source
+      SPEC="$(find source -name buildozer.spec -print -quit)"
+      if [ -z "$SPEC" ]; then
+        echo "ERROR: buildozer.spec was not found in the ZIP."
+        find source -maxdepth 3 -type f | head -100
+        exit 1
+      fi
+      echo "PROJECT_DIR=$(dirname "$SPEC")" >> "$GITHUB_ENV"
+      echo "Found project: $(dirname "$SPEC")"
+
+  - name: Build APK
+    run: |
+      . .venv/bin/activate
+      cd "$PROJECT_DIR"
+      yes | buildozer -v android debug
+
+  - name: Upload APK
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: ALL-MUSIC-STUDIO-build-results
+      path: |
+        source/**/*.apk
+        source/**/.buildozer/**/*.log
+      if-no-files-found: warn
+      retention-days: 7
